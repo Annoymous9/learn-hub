@@ -1,0 +1,52 @@
+# OS & Tooling
+.DS_Store
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Go (Backend)
+/bin/
+/server
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+*.test
+coverage.out
+coverage.html
+
+# Node (Frontend)
+node_modules/
+dist/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# Project Data (Private)
+config.yaml
+configs/config.yaml
+!configs/config.yaml.example
+*.db
+*.sqlite
+data/
+attachments/
+backups/
+meili_data/
+caddy_data/
+
+# Environment Variables
+.env
+.env.local
+.env.production.local
+.env.development.local
+.env.test.local
+
+# Wire generated files
+wire_gen.go
+
+# Logs
+*.log
+logs/

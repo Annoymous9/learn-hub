@@ -1,0 +1,994 @@
+openapi: 3.1.0
+info:
+  title: 学习平台 API
+  version: 1.0.0
+  description: 多用户学习平台的后端 API（鉴权、笔记、OCR、题库与考试、日程与待办、网站监控、通知与备份）
+servers:
+  - url: https://learnhub.example.com/api
+    description: 生产
+  - url: http://localhost:8080/api
+    description: 本地开发
+security:
+  - bearerAuth: []
+tags:
+  - name: Auth
+  - name: Users
+  - name: Notes
+  - name: OCR
+  - name: Questions
+  - name: Exams
+  - name: TasksEvents
+  - name: Monitors
+  - name: Settings
+  - name: Admin
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+  parameters:
+    Page:
+      name: page
+      in: query
+      schema: { type: integer, minimum: 1, default: 1 }
+    PageSize:
+      name: page_size
+      in: query
+      schema: { type: integer, minimum: 1, maximum: 100, default: 20 }
+  schemas:
+    ApiError:
+      type: object
+      required: [code, message]
+      properties:
+        code: { type: string }
+        message: { type: string }
+        details: { type: object, additionalProperties: true }
+        request_id: { type: string }
+        trace_id: { type: string }
+        hint: { type: string }
+    ErrorResponse:
+      type: object
+      required: [error]
+      properties:
+        error:
+          $ref: '#/components/schemas/ApiError'
+    PaginationMeta:
+      type: object
+      properties:
+        page: { type: integer }
+        page_size: { type: integer }
+        total: { type: integer }
+    EnvelopeData:
+      type: object
+      additionalProperties: true
+    ListResponse:
+      type: object
+      properties:
+        data:
+          type: array
+          items: { type: object }
+        meta:
+          $ref: '#/components/schemas/PaginationMeta'
+    User:
+      type: object
+      properties:
+        id: { type: integer }
+        username: { type: string }
+        email: { type: string, nullable: true }
+        role: { type: string, enum: [admin, user] }
+        status: { type: integer }
+        created_at: { type: string, format: date-time }
+        last_login_at: { type: string, format: date-time, nullable: true }
+    Notebook:
+      type: object
+      properties:
+        id: { type: integer }
+        name: { type: string }
+        owner_id: { type: integer }
+        parent_id: { type: integer, nullable: true }
+        created_at: { type: string, format: date-time }
+    Note:
+      type: object
+      properties:
+        id: { type: integer }
+        title: { type: string }
+        content_md: { type: string }
+        content_html: { type: string, nullable: true }
+        notebook_id: { type: integer }
+        owner_id: { type: integer }
+        tags:
+          type: array
+          items: { type: string }
+        created_at: { type: string, format: date-time }
+        updated_at: { type: string, format: date-time }
+    Attachment:
+      type: object
+      properties:
+        id: { type: integer }
+        note_id: { type: integer, nullable: true }
+        owner_id: { type: integer }
+        file_name: { type: string }
+        file_type: { type: string }
+        file_path: { type: string }
+        size: { type: integer }
+        meta: { type: object, additionalProperties: true, nullable: true }
+        created_at: { type: string, format: date-time }
+    OCRJob:
+      type: object
+      properties:
+        id: { type: integer }
+        owner_id: { type: integer }
+        source_attachment_id: { type: integer }
+        status: { type: string, enum: [queued, running, succeeded, failed] }
+        engine: { type: string, enum: [local, cloud] }
+        lang: { type: string }
+        detect_formula: { type: boolean }
+        detect_tables: { type: boolean }
+        progress: { type: integer }
+        result_text: { type: string, nullable: true }
+        layout_json: { type: object, additionalProperties: true, nullable: true }
+        tables_csv_path: { type: string, nullable: true }
+        error: { type: string, nullable: true }
+        created_at: { type: string, format: date-time }
+        finished_at: { type: string, format: date-time, nullable: true }
+    Question:
+      type: object
+      properties:
+        id: { type: integer }
+        owner_id: { type: integer }
+        type: { type: string, enum: [single, multi, judge, blank, essay] }
+        stem_md: { type: string }
+        options: 
+          type: array
+          items:
+            type: object
+            properties:
+              key: { type: string }
+              text_md: { type: string }
+        answer:
+          type: object
+          additionalProperties: true
+        explanation_md: { type: string, nullable: true }
+        knowledge_tags:
+          type: array
+          items: { type: string }
+        source: { type: string, nullable: true }
+        difficulty: { type: integer, nullable: true }
+        stats_correct_rate: { type: number, format: float }
+        created_at: { type: string, format: date-time }
+        updated_at: { type: string, format: date-time }
+    Exam:
+      type: object
+      properties:
+        id: { type: integer }
+        owner_id: { type: integer }
+        title: { type: string }
+        config: 
+          type: object
+          properties:
+            time_limit_min: { type: integer }
+            shuffle: { type: boolean }
+            quotas: { type: object, additionalProperties: { type: integer } }
+            rules: { type: object, additionalProperties: true }
+        created_at: { type: string, format: date-time }
+    ExamRecord:
+      type: object
+      properties:
+        id: { type: integer }
+        exam_id: { type: integer }
+        user_id: { type: integer }
+        paper_id: { type: integer }
+        answers: { type: object, additionalProperties: true }
+        auto_score: { type: number }
+        manual_score: { type: number }
+        total_score: { type: number }
+        time_spent_sec: { type: integer }
+        submitted_at: { type: string, format: date-time, nullable: true }
+        breakdown: { type: object, additionalProperties: true, nullable: true }
+        wrong_list_ids:
+          type: array
+          items: { type: integer }
+        created_at: { type: string, format: date-time }
+    Project:
+      type: object
+      properties:
+        id: { type: integer }
+        name: { type: string }
+        owner_id: { type: integer }
+        created_at: { type: string, format: date-time }
+    Task:
+      type: object
+      properties:
+        id: { type: integer }
+        project_id: { type: integer, nullable: true }
+        owner_id: { type: integer }
+        title: { type: string }
+        desc_md: { type: string, nullable: true }
+        status: { type: string, enum: [todo, doing, done, archived] }
+        priority: { type: integer }
+        labels:
+          type: array
+          items: { type: string }
+        start_at: { type: string, format: date-time, nullable: true }
+        due_at: { type: string, format: date-time, nullable: true }
+        repeat_rule: { type: object, additionalProperties: true, nullable: true }
+        reminder_rules: { type: object, additionalProperties: true, nullable: true }
+        pomodoro_count: { type: integer }
+        created_at: { type: string, format: date-time }
+        updated_at: { type: string, format: date-time }
+    Event:
+      type: object
+      properties:
+        id: { type: integer }
+        owner_id: { type: integer }
+        title: { type: string }
+        start_at: { type: string, format: date-time }
+        end_at: { type: string, format: date-time }
+        repeat_rule: { type: object, additionalProperties: true, nullable: true }
+        reminders: { type: object, additionalProperties: true, nullable: true }
+        created_at: { type: string, format: date-time }
+    Monitor:
+      type: object
+      properties:
+        id: { type: integer }
+        owner_id: { type: integer }
+        type: { type: string, enum: [http, ping, tcp, ssl, script, system] }
+        target: { type: string, nullable: true }
+        config: { type: object, additionalProperties: true, nullable: true }
+        interval_sec: { type: integer }
+        timeout_ms: { type: integer }
+        threshold: { type: object, additionalProperties: true, nullable: true }
+        status: { type: integer }
+        created_at: { type: string, format: date-time }
+    ProbeResult:
+      type: object
+      properties:
+        id: { type: integer }
+        monitor_id: { type: integer }
+        ts: { type: string, format: date-time }
+        latency_ms: { type: integer, nullable: true }
+        status: { type: integer }
+        message: { type: string, nullable: true }
+        metrics: { type: object, additionalProperties: true, nullable: true }
+
+paths:
+  /auth/login:
+    post:
+      tags: [Auth]
+      summary: 登录
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [username, password]
+              properties:
+                username: { type: string }
+                password: { type: string }
+      responses:
+        '200':
+          description: 登录成功
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  access_token: { type: string }
+                  refresh_token: { type: string }
+                  expires_in: { type: integer }
+                  user:
+                    $ref: '#/components/schemas/User'
+        '401':
+          description: 认证失败
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ErrorResponse' }
+
+  /auth/refresh:
+    post:
+      tags: [Auth]
+      summary: 刷新 Access Token
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                refresh_token: { type: string }
+      responses:
+        '200':
+          description: 新 Access Token
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  access_token: { type: string }
+                  expires_in: { type: integer }
+        '401':
+          description: Refresh 失效
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ErrorResponse' }
+
+  /users/me:
+    get:
+      tags: [Users]
+      summary: 当前用户信息
+      responses:
+        '200':
+          description: 成功
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data: { $ref: '#/components/schemas/User' }
+
+  /admin/users:
+    get:
+      tags: [Users]
+      summary: 管理员查询用户
+      parameters:
+        - $ref: '#/components/parameters/Page'
+        - $ref: '#/components/parameters/PageSize'
+      responses:
+        '200':
+          description: 列表
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ListResponse' }
+    post:
+      tags: [Users]
+      summary: 管理员创建用户
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [username, password, role]
+              properties:
+                username: { type: string }
+                password: { type: string }
+                email: { type: string }
+                role: { type: string, enum: [admin, user] }
+      responses:
+        '201':
+          description: 创建成功
+          headers:
+            Location:
+              schema: { type: string }
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data: { $ref: '#/components/schemas/User' }
+        '409':
+          description: 冲突
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ErrorResponse' }
+
+  /notebooks:
+    get:
+      tags: [Notes]
+      summary: 笔记本列表
+      responses:
+        '200':
+          description: 列表
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ListResponse' }
+    post:
+      tags: [Notes]
+      summary: 创建笔记本
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name]
+              properties:
+                name: { type: string }
+                parent_id: { type: integer, nullable: true }
+      responses:
+        '201':
+          description: 创建成功
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data: { $ref: '#/components/schemas/Notebook' }
+
+  /notes:
+    get:
+      tags: [Notes]
+      summary: 笔记列表
+      parameters:
+        - $ref: '#/components/parameters/Page'
+        - $ref: '#/components/parameters/PageSize'
+      responses:
+        '200':
+          description: 列表
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ListResponse' }
+    post:
+      tags: [Notes]
+      summary: 创建笔记
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [title, content_md, notebook_id]
+              properties:
+                title: { type: string }
+                content_md: { type: string }
+                notebook_id: { type: integer }
+                tags:
+                  type: array
+                  items: { type: string }
+      responses:
+        '201':
+          description: 创建成功
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data: { $ref: '#/components/schemas/Note' }
+
+  /notes/{id}:
+    get:
+      tags: [Notes]
+      summary: 获取笔记
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: integer }
+      responses:
+        '200':
+          description: 成功
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data: { $ref: '#/components/schemas/Note' }
+        '404':
+          description: 不存在
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ErrorResponse' }
+    patch:
+      tags: [Notes]
+      summary: 更新笔记
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: integer }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                title: { type: string }
+                content_md: { type: string }
+                tags: { type: array, items: { type: string } }
+      responses:
+        '200':
+          description: 成功
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data: { $ref: '#/components/schemas/Note' }
+        '409':
+          description: 冲突（编辑冲突）
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ErrorResponse' }
+    delete:
+      tags: [Notes]
+      summary: 删除笔记
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: integer }
+      responses:
+        '204':
+          description: 已删除
+
+  /notes/{id}/attachments:
+    post:
+      tags: [Notes]
+      summary: 上传附件
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              properties:
+                file: { type: string, format: binary }
+      responses:
+        '201':
+          description: 上传成功
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data: { $ref: '#/components/schemas/Attachment' }
+
+  /search/notes:
+    get:
+      tags: [Notes]
+      summary: 笔记搜索（Meilisearch）
+      parameters:
+        - name: q
+          in: query
+          schema: { type: string }
+        - name: filters
+          in: query
+          schema: { type: string }
+        - $ref: '#/components/parameters/Page'
+        - $ref: '#/components/parameters/PageSize'
+      responses:
+        '200':
+          description: 搜索结果
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ListResponse' }
+
+  /notes/{id}/similar:
+    get:
+      tags: [Notes]
+      summary: 相似笔记推荐
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: integer }
+      responses:
+        '200':
+          description: 成功
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ListResponse' }
+
+  /ocr/jobs:
+    post:
+      tags: [OCR]
+      summary: 创建 OCR 任务
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [source_attachment_id]
+              properties:
+                source_attachment_id: { type: integer }
+                lang: { type: string, default: zh }
+                engine: { type: string, enum: [local, cloud], default: local }
+                detect_formula: { type: boolean, default: false }
+                detect_tables: { type: boolean, default: true }
+      responses:
+        '201':
+          description: 已受理
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data: { $ref: '#/components/schemas/OCRJob' }
+
+  /ocr/jobs/{id}:
+    get:
+      tags: [OCR]
+      summary: 查询任务状态/结果
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: integer }
+      responses:
+        '200':
+          description: 成功
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data: { $ref: '#/components/schemas/OCRJob' }
+
+  /ocr/jobs/{id}/retry:
+    post:
+      tags: [OCR]
+      summary: 重试任务
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: integer }
+      responses:
+        '202':
+          description: 已重试
+
+  /ocr/jobs/{id}/to-note:
+    post:
+      tags: [OCR]
+      summary: 生成笔记
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: integer }
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                notebook_id: { type: integer }
+                title: { type: string }
+      responses:
+        '201':
+          description: 已创建笔记
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data: { $ref: '#/components/schemas/Note' }
+
+  /questions:
+    get:
+      tags: [Questions]
+      summary: 题目列表
+      parameters:
+        - $ref: '#/components/parameters/Page'
+        - $ref: '#/components/parameters/PageSize'
+      responses:
+        '200':
+          description: 列表
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ListResponse' }
+    post:
+      tags: [Questions]
+      summary: 创建题目
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/Question'
+      responses:
+        '201':
+          description: 创建成功
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data: { $ref: '#/components/schemas/Question' }
+
+  /questions/import:
+    post:
+      tags: [Questions]
+      summary: 导入题库（图文混排）
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              properties:
+                file: { type: string, format: binary }
+      responses:
+        '202':
+          description: 已受理（可能异步）
+        '422':
+          description: 模板校验失败
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ErrorResponse' }
+
+  /exams:
+    post:
+      tags: [Exams]
+      summary: 创建考试配置
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/Exam'
+      responses:
+        '201':
+          description: 创建成功
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data: { $ref: '#/components/schemas/Exam' }
+
+  /exams/{id}/start:
+    post:
+      tags: [Exams]
+      summary: 开始考试
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: integer }
+      responses:
+        '200':
+          description: 返回 record_id
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: object
+                    properties:
+                      record_id: { type: integer }
+
+  /exam-records/{record_id}/answers:
+    post:
+      tags: [Exams]
+      summary: 保存作答进度（幂等）
+      parameters:
+        - name: record_id
+          in: path
+          required: true
+          schema: { type: integer }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                answers: { type: object, additionalProperties: true }
+                elapsed_sec: { type: integer }
+      responses:
+        '200':
+          description: 已保存
+
+  /exam-records/{record_id}/submit:
+    post:
+      tags: [Exams]
+      summary: 交卷
+      parameters:
+        - name: record_id
+          in: path
+          required: true
+          schema: { type: integer }
+      responses:
+        '200':
+          description: 成绩与解析
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data: { $ref: '#/components/schemas/ExamRecord' }
+        '409':
+          description: 重复提交
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ErrorResponse' }
+
+  /projects:
+    post:
+      tags: [TasksEvents]
+      summary: 创建项目/清单
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name]
+              properties:
+                name: { type: string }
+      responses:
+        '201':
+          description: 创建成功
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data: { $ref: '#/components/schemas/Project' }
+
+  /tasks:
+    post:
+      tags: [TasksEvents]
+      summary: 创建任务
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/Task'
+      responses:
+        '201':
+          description: 创建成功
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data: { $ref: '#/components/schemas/Task' }
+
+  /events:
+    post:
+      tags: [TasksEvents]
+      summary: 创建事件
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/Event'
+      responses:
+        '201':
+          description: 创建成功
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data: { $ref: '#/components/schemas/Event' }
+
+  /monitors:
+    post:
+      tags: [Monitors]
+      summary: 创建监控项
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/Monitor'
+      responses:
+        '201':
+          description: 创建成功
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data: { $ref: '#/components/schemas/Monitor' }
+
+  /monitors/{id}/test:
+    post:
+      tags: [Monitors]
+      summary: 立即测试监控
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: integer }
+      responses:
+        '200':
+          description: 测试结果
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data: { $ref: '#/components/schemas/ProbeResult' }
+
+  /monitors/{id}/results:
+    get:
+      tags: [Monitors]
+      summary: 监控结果区间查询
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: integer }
+        - name: range
+          in: query
+          schema: { type: string, example: "24h" }
+      responses:
+        '200':
+          description: 列表
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ListResponse' }
+
+  /settings/smtp:
+    post:
+      tags: [Settings]
+      summary: 配置 SMTP
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [host, port, user, pass]
+              properties:
+                host: { type: string }
+                port: { type: integer }
+                user: { type: string }
+                pass: { type: string }
+                from: { type: string }
+      responses:
+        '200':
+          description: 已保存
+
+  /notifications/webpush/subscribe:
+    post:
+      tags: [Settings]
+      summary: 订阅 Web Push
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [endpoint, keys]
+              properties:
+                endpoint: { type: string }
+                keys:
+                  type: object
+                  properties:
+                    p256dh: { type: string }
+                    auth: { type: string }
+      responses:
+        '201':
+          description: 订阅成功
+
+  /admin/system/health:
+    get:
+      tags: [Admin]
+      summary: 系统健康检查
+      responses:
+        '200':
+          description: 状态
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: object
+                    properties:
+                      db: { type: string }
+                      redis: { type: string }
+                      search: { type: string }
+                      ocr: { type: string }
+
+  /admin/backup/run:
+    post:
+      tags: [Admin]
+      summary: 立即触发备份
+      responses:
+        '202':
+          description: 已触发
