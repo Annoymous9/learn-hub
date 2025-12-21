@@ -6,6 +6,11 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"learn-hub/internal/controller"
+	"learn-hub/internal/pkg/database"
+	"learn-hub/internal/pkg/redis"
+	"learn-hub/internal/repository"
+	"learn-hub/internal/service"
 	"log"
 	"net/http"
 	"os"
@@ -26,8 +31,12 @@ func main() {
 	// 设置 Gin 模式
 	gin.SetMode(viper.GetString("server.mode"))
 
-	// 创建 Gin 引擎
-	router := setupRouter()
+	// 初始化应用（使用依赖注入）
+	router, cleanup, err := initializeApp()
+	if err != nil {
+		log.Fatalf("初始化应用失败: %v", err)
+	}
+	defer cleanup()
 
 	// 创建 HTTP 服务器
 	srv := &http.Server{
@@ -46,7 +55,7 @@ func main() {
 	}()
 
 	// 优雅关闭
-	gracefulShutdown(srv)
+	gracefulShutdown(srv, cleanup)
 }
 
 // loadConfig 使用 Viper 加载配置文件。
@@ -79,18 +88,55 @@ func loadConfig() error {
 	return nil
 }
 
-// setupRouter 创建并配置 Gin 路由引擎。
-// 这里注册所有中间件和路由组。
-func setupRouter() *gin.Engine {
+// initializeApp 初始化应用并返回 Gin 引擎和清理函数。
+// 使用手动依赖注入初始化所有组件。
+func initializeApp() (*gin.Engine, func(), error) {
+	// 初始化数据库连接
+	db, err := database.NewDB()
+	if err != nil {
+		return nil, nil, fmt.Errorf("数据库连接失败: %w", err)
+	}
+
+	// 初始化 Redis 客户端
+	redisClient, err := redis.NewRedisClient()
+	if err != nil {
+		log.Printf("警告: Redis 连接失败: %v (服务将继续运行)", err)
+	}
+
+	// 初始化 Repository 层
+	userRepo := repository.NewUserRepository(db)
+
+	// 初始化 Service 层
+	userService := service.NewUserService(userRepo)
+
+	// 初始化 Controller 层
+	userController := controller.NewUserController(userService)
+
+	// 创建并配置 Gin 引擎
+	router := provideGinEngine(userController)
+
+	// 清理函数
+	cleanup := func() {
+		sqlDB, _ := db.DB()
+		if sqlDB != nil {
+			sqlDB.Close()
+		}
+		if redisClient != nil {
+			redisClient.Close()
+		}
+		log.Println("资源清理完成")
+	}
+
+	return router, cleanup, nil
+}
+
+// provideGinEngine 提供配置好的 Gin 引擎。
+func provideGinEngine(userCtrl *controller.UserController) *gin.Engine {
 	router := gin.New()
-
-	// 使用 Recovery 中间件防止 panic 崩溃
 	router.Use(gin.Recovery())
-
-	// 使用 Logger 中间件记录请求日志
 	router.Use(gin.Logger())
 
-	// 健康检查端点
+	// 健康检查
 	router.GET("/health", func(c *gin.Context) {
 		c.JSON(http.StatusOK, gin.H{
 			"status":  "ok",
@@ -101,9 +147,7 @@ func setupRouter() *gin.Engine {
 	// API v1 路由组
 	v1 := router.Group("/api/v1")
 	{
-		// TODO: 在此处注册各模块的路由
-		// 示例: notes.RegisterRoutes(v1)
-		_ = v1 // 避免未使用变量警告
+		userCtrl.RegisterRoutes(v1)
 	}
 
 	return router
@@ -111,7 +155,7 @@ func setupRouter() *gin.Engine {
 
 // gracefulShutdown 处理优雅关闭逻辑。
 // 监听系统信号并在收到 SIGINT/SIGTERM 时平滑关闭服务器。
-func gracefulShutdown(srv *http.Server) {
+func gracefulShutdown(srv *http.Server, cleanup func()) {
 	quit := make(chan os.Signal, 1)
 	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
 	<-quit
